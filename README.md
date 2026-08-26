@@ -1,36 +1,40 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Eastwing Tech
 
-## Getting Started
+Act 0 of the **Self-Driving CRM** demo — the conversational website that replaces
+the contact form. A visitor asks a real question in plain language; a headless
+site agent answers it, enriches her firmographics, scores intent, and creates the
+Lead before she closes the tab. No human opens Salesforce.
 
-First, run the development server:
+## Stack
+
+- Next.js 16 (App Router) + React 19
+- Tailwind CSS 4
+- TypeScript
+- Deployed on Vercel
+
+## Local development
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open http://localhost:3000.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Deployment
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Pushes to `main` deploy to production automatically via the Vercel GitHub
+integration. Pull requests get preview deployments.
 
-## Learn More
+- Repo: https://github.com/Kelley-Austin/eastwing-tech
+- Production: https://eastwing-tech.vercel.app
+- Vercel project: `perficient4/eastwing-tech`
 
-To learn more about Next.js, take a look at the following resources:
+The home page prints the deployed branch and commit SHA, which is the quickest
+way to confirm a given commit actually reached production.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Status
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+The site is currently a placeholder. The Act 0 conversational widget is not
+built yet — it needs decisions on the chat engine, whether the site itself writes
+the Lead, and Eastwing Tech's product positioning.
