@@ -66,6 +66,11 @@ export async function answer(
     const live = await callAgent(config, history, message, sessionId);
     return {
       ...base,
+      // A sales-shaped Salesforce agent asks for name and email on its own.
+      // Appending our prompt too would ask the visitor three times, so when the
+      // live agent is driving, let it own the capture moment. The Lead is
+      // created as soon as an email appears in her message either way.
+      capturePrompt: null,
       content: live.reply,
       source: "agent-api",
       fallbackReason: null,

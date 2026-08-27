@@ -10,6 +10,14 @@ type Phase = "chatting" | "capturing" | "creating" | "done";
 /** Typing delay, so answers land like a person is on the other end. */
 const THINKING_MS = 700;
 
+/**
+ * The live Salesforce agent asks for identity in its own words, at a moment we
+ * don't control. So rather than gating on our own capture prompt, treat an
+ * email address appearing in the visitor's message as the signal to create the
+ * Lead. Works identically for the scripted path.
+ */
+const EMAIL_RE = /[\w.+-]+@[\w-]+\.[\w.-]+/;
+
 export default function ChatWidget() {
   const [messages, setMessages] = useState<Message[]>([
     { role: "agent", content: GREETING },
@@ -49,11 +57,15 @@ export default function ChatWidget() {
     ];
     setMessages(withVisitor);
 
-    // The capture turn is the visitor telling us who she is, not a question.
+    // Scripted path: we asked explicitly, so this turn is the answer.
     if (phase === "capturing") {
       await createLead(trimmed, withVisitor);
       return;
     }
+
+    // Live-agent path: she volunteered an email in reply to the agent's own
+    // request. Let the agent answer naturally, then write the Lead.
+    const identityTurn = EMAIL_RE.test(trimmed);
 
     setThinking(true);
     try {
@@ -72,6 +84,14 @@ export default function ChatWidget() {
       await pause(THINKING_MS);
 
       setMessages((m) => [...m, { role: "agent", content: data.reply }]);
+
+      if (identityTurn) {
+        await createLead(trimmed, [
+          ...withVisitor,
+          { role: "agent", content: data.reply },
+        ]);
+        return;
+      }
 
       if (data.readyToCapture && data.capturePrompt) {
         await pause(500);
