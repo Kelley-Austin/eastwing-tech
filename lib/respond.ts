@@ -1,0 +1,102 @@
+import "server-only";
+
+import {
+  CAPTURE_PROMPT,
+  respond as scriptedRespond,
+  type Message,
+} from "./agent";
+import {
+  readConfig,
+  sendMessage,
+  startSession,
+  type AgentConfig,
+} from "./agentApi";
+
+/**
+ * Real Agent API first, scripted second.
+ *
+ * Signals and grounding are ALWAYS computed locally from the visitor's own
+ * message, whichever path produces the answer text. Intent is a property of
+ * what she asked, not of who answered — so scoring, routing, and the Lead stay
+ * identical across both paths. That's what makes the fallback invisible.
+ */
+
+export type AnswerSource = "agent-api" | "scripted";
+
+export type Answer = {
+  content: string;
+  signals: string[];
+  groundedIn: string[];
+  readyToCapture: boolean;
+  capturePrompt: string | null;
+  source: AnswerSource;
+  /** Why the scripted path was used. Surfaced for operators, not visitors. */
+  fallbackReason: string | null;
+  /** Agent API session to carry into the next turn. */
+  sessionId: string | null;
+};
+
+export async function answer(
+  history: Message[],
+  message: string,
+  sessionId: string | null
+): Promise<Answer> {
+  // Local analysis runs regardless — it drives scoring, not the reply text.
+  const scripted = scriptedRespond(history, message);
+
+  const base = {
+    signals: scripted.signals,
+    groundedIn: scripted.groundedIn,
+    readyToCapture: scripted.readyToCapture,
+    capturePrompt: scripted.readyToCapture ? CAPTURE_PROMPT : null,
+  };
+
+  const config = readConfig();
+  if (!config) {
+    return {
+      ...base,
+      content: scripted.content,
+      source: "scripted",
+      fallbackReason: "Agent API not configured",
+      sessionId: null,
+    };
+  }
+
+  try {
+    const live = await callAgent(config, history, message, sessionId);
+    return {
+      ...base,
+      content: live.reply,
+      source: "agent-api",
+      fallbackReason: null,
+      sessionId: live.sessionId,
+    };
+  } catch (error) {
+    // Any failure — timeout, 401, policy misconfiguration, empty reply — drops
+    // to the scripted answer. The visitor sees a normal conversation.
+    return {
+      ...base,
+      content: scripted.content,
+      source: "scripted",
+      fallbackReason: error instanceof Error ? error.message : "unknown error",
+      // Drop a possibly-broken session so the next turn starts clean.
+      sessionId: null,
+    };
+  }
+}
+
+async function callAgent(
+  config: AgentConfig,
+  history: Message[],
+  message: string,
+  sessionId: string | null
+): Promise<{ reply: string; sessionId: string }> {
+  const activeSession = sessionId ?? (await startSession(config));
+
+  // sequenceId must increase within a session; derive it from the turn count
+  // so it stays correct without the client having to track it.
+  const sequenceId = history.filter((m) => m.role === "visitor").length + 1;
+
+  const reply = await sendMessage(config, activeSession, message, sequenceId);
+  return { reply, sessionId: activeSession };
+}

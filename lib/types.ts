@@ -58,6 +58,10 @@ export type ChatResponse = {
   groundedIn: string[];
   readyToCapture: boolean;
   capturePrompt: string | null;
+  /** Which path produced the reply text. */
+  source: "agent-api" | "scripted";
+  /** Agent API session to send back on the next turn. */
+  sessionId: string | null;
 };
 
 export type LeadResponse = {

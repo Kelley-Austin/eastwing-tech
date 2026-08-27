@@ -21,6 +21,8 @@ export default function ChatWidget() {
   const [topics, setTopics] = useState<string[]>([]);
   const [lead, setLead] = useState<LeadResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** Agent API session, carried across turns so the agent keeps context. */
+  const [sessionId, setSessionId] = useState<string | null>(null);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -58,11 +60,12 @@ export default function ChatWidget() {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ history: messages, message: trimmed }),
+        body: JSON.stringify({ history: messages, message: trimmed, sessionId }),
       });
       if (!res.ok) throw new Error(`Agent returned ${res.status}`);
       const data: ChatResponse = await res.json();
 
+      setSessionId(data.sessionId);
       setSignals((s) => [...s, ...data.signals]);
       setTopics((t) => [...t, ...data.groundedIn]);
 

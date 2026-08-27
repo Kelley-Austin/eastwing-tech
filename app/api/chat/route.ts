@@ -1,15 +1,18 @@
-import { CAPTURE_PROMPT, respond, type Message } from "@/lib/agent";
+import type { Message } from "@/lib/agent";
+import { answer } from "@/lib/respond";
 
 /**
  * The site agent's turn endpoint.
  *
- * Headless by definition: no logged-in user, no session, no CRM UI involved.
- * The knowledge corpus stays server-side.
+ * Headless by definition: no logged-in user, no session cookie, no CRM UI.
+ * Tries the real Salesforce Agent API and silently falls back to the scripted
+ * agent on any failure.
  */
 
 type ChatRequest = {
   history?: Message[];
   message?: string;
+  sessionId?: string | null;
 };
 
 const MAX_MESSAGE_LENGTH = 2000;
@@ -45,13 +48,24 @@ export async function POST(request: Request) {
         .slice(-MAX_HISTORY)
     : [];
 
-  const reply = respond(history, message);
+  const sessionId =
+    typeof body.sessionId === "string" && body.sessionId ? body.sessionId : null;
+
+  const result = await answer(history, message, sessionId);
+
+  // A fallback is an operational event worth seeing in the Vercel logs — it's
+  // the difference between "the demo worked" and "the demo worked for a reason".
+  if (result.fallbackReason && result.fallbackReason !== "Agent API not configured") {
+    console.warn(`[agent-api] fell back to scripted: ${result.fallbackReason}`);
+  }
 
   return Response.json({
-    reply: reply.content,
-    signals: reply.signals,
-    groundedIn: reply.groundedIn,
-    readyToCapture: reply.readyToCapture,
-    capturePrompt: reply.readyToCapture ? CAPTURE_PROMPT : null,
+    reply: result.content,
+    signals: result.signals,
+    groundedIn: result.groundedIn,
+    readyToCapture: result.readyToCapture,
+    capturePrompt: result.capturePrompt,
+    source: result.source,
+    sessionId: result.sessionId,
   });
 }
