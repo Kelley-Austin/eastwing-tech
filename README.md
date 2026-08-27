@@ -45,6 +45,36 @@ The hero CTA is a conversation, not a form.
 4. `/api/lead` extracts identity from that free text, enriches firmographics,
    scores intent, routes by territory, and returns the finished Lead.
 
+### Environment variables
+
+All server-side only. Never prefix with `NEXT_PUBLIC_`.
+
+| Var | Required | Purpose |
+| --- | --- | --- |
+| `SF_MY_DOMAIN_URL` | yes | My Domain root, e.g. `https://xxx.my.salesforce.com`. Not `lightning.force.com`. |
+| `SF_CLIENT_ID` | yes | External Client App consumer key |
+| `SF_CLIENT_SECRET` | yes | ECA consumer secret |
+| `SF_AGENT_ID` | yes | 18-char agent id from the agent detail page URL |
+| `SF_API_BASE` | no | Defaults to `https://api.salesforce.com/einstein/ai-agent/v1` |
+| `SF_BYPASS_USER` | no | Defaults `true`. Set `false` to run as the ECA Run As user instead of the agent's assigned user. |
+| `SF_AGENT_ENABLED` | no | Set `false` to force the scripted path without deleting credentials. |
+| `SF_AGENT_TIMEOUT_MS` | no | Defaults `12000`. |
+| `LEAD_WEBHOOK_URL` | no | If set, the Lead is POSTed here. |
+| `LEAD_WEBHOOK_TOKEN` | no | Bearer token for the above. |
+
+Check which path is live at `/api/health` — it reports config, token, and session
+stages separately, with a hint per failure, and never returns secret values.
+
+Two gotchas that cost real time:
+
+- `bypassUser: true` runs as the user **assigned to the agent**, not as no user.
+  If that assignment is empty, start session fails with
+  `Invalid user ID provided on start session:`. `SF_BYPASS_USER=false` works
+  around it with no Salesforce change.
+- Env vars set through a shell pipe pick up a trailing newline, producing an
+  `invalid_client` error indistinguishable from a wrong secret. Config reads are
+  trimmed defensively.
+
 ### Swap points
 
 Both stubs are deliberately isolated, so replacing them is configuration, not
