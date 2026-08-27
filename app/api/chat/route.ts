@@ -20,7 +20,7 @@ const MAX_HISTORY = 40;
 
 // Must exceed SF_AGENT_TIMEOUT_MS, or the platform kills the function before
 // the fallback can run and the visitor gets a hard error instead of an answer.
-export const maxDuration = 30;
+export const maxDuration = 45;
 
 export async function POST(request: Request) {
   let body: ChatRequest;
@@ -71,5 +71,8 @@ export async function POST(request: Request) {
     capturePrompt: result.capturePrompt,
     source: result.source,
     sessionId: result.sessionId,
+    // Operator diagnostics. The widget never renders this; it exists so a
+    // fallback on stage can be explained rather than guessed at.
+    fallbackReason: result.fallbackReason,
   });
 }

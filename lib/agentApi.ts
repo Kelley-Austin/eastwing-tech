@@ -57,10 +57,11 @@ export function readConfig(): AgentConfig | null {
     apiBase:
       process.env.SF_API_BASE?.trim().replace(/\/+$/, "") ||
       "https://api.salesforce.com/einstein/ai-agent/v1",
-    // Measured round-trip against a live agent was ~5.6s. A 6s budget sat far
-    // too close to that: the path taken would flap between real and scripted
-    // between turns, which is worse on stage than either path consistently.
-    timeoutMs: Number(process.env.SF_AGENT_TIMEOUT_MS ?? 12_000),
+    // Real agent latency measured 2.9-5.6s on one agent and over 12s on
+    // another, so the budget has to be generous. `maxDuration` on the chat
+    // route must stay above this or the platform kills the function before the
+    // fallback can run.
+    timeoutMs: Number(process.env.SF_AGENT_TIMEOUT_MS ?? 25_000),
     bypassUser: (process.env.SF_BYPASS_USER?.trim() ?? "true") !== "false",
   };
 }
