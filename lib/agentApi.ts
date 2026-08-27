@@ -21,6 +21,16 @@ export type AgentConfig = {
   agentId: string;
   apiBase: string;
   timeoutMs: number;
+  /**
+   * `true` = run as the user assigned to the agent (documented default for the
+   * client credentials flow). `false` = run as the token's user, i.e. the ECA's
+   * Run As user.
+   *
+   * If the agent has no assigned user, `true` resolves to an empty id and start
+   * session fails with "Invalid user ID provided on start session:". Flipping
+   * this to `false` is the workaround that needs no Salesforce change.
+   */
+  bypassUser: boolean;
 };
 
 /**
@@ -44,6 +54,7 @@ export function readConfig(): AgentConfig | null {
       process.env.SF_API_BASE?.trim().replace(/\/+$/, "") ||
       "https://api.salesforce.com/einstein/ai-agent/v1",
     timeoutMs: Number(process.env.SF_AGENT_TIMEOUT_MS ?? 6000),
+    bypassUser: (process.env.SF_BYPASS_USER?.trim() ?? "true") !== "false",
   };
 }
 
@@ -115,8 +126,7 @@ export async function startSession(config: AgentConfig): Promise<string> {
         instanceConfig: { endpoint: config.domain },
         tz: "America/Los_Angeles",
         featureSupport: "Sync",
-        // The headless claim in one flag: no Salesforce user behind this visitor.
-        bypassUser: true,
+        bypassUser: config.bypassUser,
       }),
     }
   );

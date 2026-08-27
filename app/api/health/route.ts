@@ -60,7 +60,12 @@ export async function GET() {
         path: "scripted",
         reason: "session start failed",
         detail: error instanceof Error ? error.message : "unknown error",
-        hint: "Check SF_AGENT_ID is the 18-char agent id, that the agent is Activated, and that it is not the unsupported 'Agentforce (Default)' type.",
+        bypassUser: config.bypassUser,
+        hint: /Invalid user ID/i.test(
+          error instanceof Error ? error.message : ""
+        )
+          ? "bypassUser=true runs as the user ASSIGNED TO THE AGENT, and that assignment is empty. Either assign an agent user in Agent Builder, or set SF_BYPASS_USER=false to run as the ECA's Run As user instead."
+          : "Check SF_AGENT_ID is the 18-char agent id, that the agent is Activated, and that it is not the unsupported 'Agentforce (Default)' type.",
         checks: { ...checks, session: { ok: false } },
       },
       { status: 200 }
@@ -72,6 +77,7 @@ export async function GET() {
     reason: null,
     agentId: `${config.agentId.slice(0, 6)}…`,
     timeoutMs: config.timeoutMs,
+    bypassUser: config.bypassUser,
     checks,
   });
 }
