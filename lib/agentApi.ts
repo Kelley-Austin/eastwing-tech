@@ -38,6 +38,10 @@ export type AgentConfig = {
  * up a trailing newline, which produces a 401 that looks like a bad secret.
  */
 export function readConfig(): AgentConfig | null {
+  // Stage kill switch. Lets you force the scripted path without deleting
+  // credentials — useful while the Salesforce agent isn't grounded yet.
+  if (process.env.SF_AGENT_ENABLED?.trim() === "false") return null;
+
   const domain = process.env.SF_MY_DOMAIN_URL?.trim().replace(/\/+$/, "");
   const clientId = process.env.SF_CLIENT_ID?.trim();
   const clientSecret = process.env.SF_CLIENT_SECRET?.trim();
@@ -53,7 +57,10 @@ export function readConfig(): AgentConfig | null {
     apiBase:
       process.env.SF_API_BASE?.trim().replace(/\/+$/, "") ||
       "https://api.salesforce.com/einstein/ai-agent/v1",
-    timeoutMs: Number(process.env.SF_AGENT_TIMEOUT_MS ?? 6000),
+    // Measured round-trip against a live agent was ~5.6s. A 6s budget sat far
+    // too close to that: the path taken would flap between real and scripted
+    // between turns, which is worse on stage than either path consistently.
+    timeoutMs: Number(process.env.SF_AGENT_TIMEOUT_MS ?? 12_000),
     bypassUser: (process.env.SF_BYPASS_USER?.trim() ?? "true") !== "false",
   };
 }

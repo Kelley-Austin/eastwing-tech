@@ -18,6 +18,10 @@ type ChatRequest = {
 const MAX_MESSAGE_LENGTH = 2000;
 const MAX_HISTORY = 40;
 
+// Must exceed SF_AGENT_TIMEOUT_MS, or the platform kills the function before
+// the fallback can run and the visitor gets a hard error instead of an answer.
+export const maxDuration = 30;
+
 export async function POST(request: Request) {
   let body: ChatRequest;
   try {

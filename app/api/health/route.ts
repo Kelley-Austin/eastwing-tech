@@ -20,11 +20,14 @@ export async function GET() {
   const config = readConfig();
 
   if (!config) {
+    const disabled = process.env.SF_AGENT_ENABLED?.trim() === "false";
     return Response.json(
       {
         path: "scripted",
-        reason: "Agent API not configured",
-        missingEnvVars: missing,
+        reason: disabled
+          ? "Agent API disabled by SF_AGENT_ENABLED=false"
+          : "Agent API not configured",
+        missingEnvVars: disabled ? [] : missing,
         checks: { config: false, token: null, session: null },
       },
       { status: 200 }
