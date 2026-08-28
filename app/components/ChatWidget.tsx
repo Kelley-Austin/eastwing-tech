@@ -197,9 +197,6 @@ export default function ChatWidget() {
           </span>
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-medium">Eastwing assistant</p>
-            <p className="truncate font-mono text-[11px] text-[var(--faint)]">
-              headless · no sign-in required
-            </p>
           </div>
         </div>
 
@@ -279,10 +276,6 @@ export default function ChatWidget() {
           </div>
         </form>
       </div>
-
-      <p className="mt-3 text-center font-mono text-[11px] text-[var(--faint)]">
-        No form fields. No sign-in. The record is written when the conversation ends.
-      </p>
     </div>
   );
 }
