@@ -10,9 +10,13 @@
  * Client-safe: no server-only imports, since the widget needs it at render time.
  */
 
-/** "Friday, August 28 at 9:00 AM" — weekday and year both optional. */
+/**
+ * "Friday, August 28 at 9:00 AM" and its real-world variants. The live agent
+ * writes "Friday, August 28, at 9:30 AM" — with a comma before "at" — so both
+ * that comma and the word "at" itself have to be optional, as does the year.
+ */
 const SLOT_RE =
-  /(?:(?:Mon|Tues|Wednes|Thurs|Fri|Satur|Sun)day,?\s+)?[A-Z][a-z]{2,8}\s+\d{1,2}(?:,\s*\d{4})?\s+at\s+\d{1,2}:\d{2}\s*(?:AM|PM)/gi;
+  /(?:(?:Mon|Tues|Wednes|Thurs|Fri|Satur|Sun)day,?\s+)?[A-Z][a-z]{2,8}\s+\d{1,2}(?:,\s*\d{4})?,?\s+(?:at\s+)?\d{1,2}:\d{2}\s*(?:AM|PM)/gi;
 
 /** Fallback for bare times: "9:00 AM". */
 const BARE_TIME_RE = /\b\d{1,2}:\d{2}\s*(?:AM|PM)\b/gi;
