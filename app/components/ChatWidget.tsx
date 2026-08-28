@@ -34,6 +34,12 @@ export default function ChatWidget() {
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  /**
+   * Guards against a second Lead if she mentions another email later. A ref,
+   * not state, because the check and the set happen inside one async turn where
+   * a state update wouldn't have landed yet.
+   */
+  const leadCreatedRef = useRef(false);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({
@@ -85,11 +91,14 @@ export default function ChatWidget() {
 
       setMessages((m) => [...m, { role: "agent", content: data.reply }]);
 
-      if (identityTurn) {
-        await createLead(trimmed, [
-          ...withVisitor,
-          { role: "agent", content: data.reply },
-        ]);
+      if (identityTurn && !leadCreatedRef.current) {
+        // The agent already closed in its own words; just reveal the record and
+        // leave the conversation open.
+        await createLead(
+          trimmed,
+          [...withVisitor, { role: "agent", content: data.reply }],
+          { announce: data.source === "scripted", end: false }
+        );
         return;
       }
 
@@ -111,8 +120,22 @@ export default function ChatWidget() {
     }
   }
 
-  async function createLead(identityText: string, transcript: Message[]) {
-    setPhase("creating");
+  /**
+   * `announce` writes our own closing line, and `end` closes the conversation.
+   * Both are false on the live-agent path: the agent has already acknowledged
+   * her details in its own words and often offers to book a call, so adding our
+   * closing would both repeat it and contradict the offer — while disabling the
+   * input would stop her accepting it.
+   */
+  async function createLead(
+    identityText: string,
+    transcript: Message[],
+    { announce = true, end = true }: { announce?: boolean; end?: boolean } = {}
+  ) {
+    if (leadCreatedRef.current) return;
+    leadCreatedRef.current = true;
+
+    if (end) setPhase("creating");
     try {
       const res = await fetch("/api/lead", {
         method: "POST",
@@ -127,27 +150,31 @@ export default function ChatWidget() {
       if (!res.ok) throw new Error(`Lead creation returned ${res.status}`);
       const data: LeadResponse = await res.json();
 
-      await pause(THINKING_MS);
-      setMessages((m) => [
-        ...m,
-        {
-          role: "agent",
-          content: `Thanks${
-            data.lead.firstName ? `, ${data.lead.firstName}` : ""
-          } — that's everything I need. ${
-            data.lead.routing.owner.startsWith("Unassigned")
-              ? "I've put this in the routing queue and someone will pick it up shortly."
-              : `${data.lead.routing.owner} covers ${data.lead.routing.territory} and will reach out shortly.`
-          } You can close the tab; nothing else is needed from you.`,
-        },
-      ]);
+      if (announce) {
+        await pause(THINKING_MS);
+        setMessages((m) => [
+          ...m,
+          {
+            role: "agent",
+            content: `Thanks${
+              data.lead.firstName ? `, ${data.lead.firstName}` : ""
+            } — that's everything I need. ${
+              data.lead.routing.owner.startsWith("Unassigned")
+                ? "I've put this in the routing queue and someone will pick it up shortly."
+                : `${data.lead.routing.owner} covers ${data.lead.routing.territory} and will reach out shortly.`
+            } You can close the tab; nothing else is needed from you.`,
+          },
+        ]);
+      }
       setLead(data);
-      setPhase("done");
+      if (end) setPhase("done");
     } catch (e) {
       setError(
         e instanceof Error ? e.message : "Something went wrong creating the lead."
       );
-      setPhase("capturing");
+      // Allow a retry — the visitor's details were never recorded.
+      leadCreatedRef.current = false;
+      if (end) setPhase("capturing");
     }
   }
 
