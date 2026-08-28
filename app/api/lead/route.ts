@@ -49,5 +49,20 @@ export async function POST(request: Request) {
 
   const delivery = await forwardLead(lead);
 
+  // The chat no longer displays the record, so this log is the only way to
+  // confirm a Lead was created and see where it went. Visible in Vercel logs.
+  console.log(
+    `[lead] ${lead.id} ${lead.firstName ?? "?"} ${lead.lastName ?? ""} | ` +
+      `title=${lead.title ?? "-"} | company=${lead.company} | ` +
+      `score=${lead.intent.score}/${lead.intent.band} | owner=${lead.routing.owner} | ` +
+      `downstream=${
+        delivery.forwarded
+          ? `sent(${delivery.status})`
+          : delivery.error
+            ? `failed(${delivery.error})`
+            : "none configured — NOT written to Salesforce"
+      }`
+  );
+
   return Response.json({ lead, delivery });
 }

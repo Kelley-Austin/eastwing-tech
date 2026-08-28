@@ -131,6 +131,23 @@ export const CAPTURE_PROMPT =
  * Act 0 is that nobody fills in labelled fields — so this has to cope with
  * "Priya Chen, VP of Operations at Northwind, priya@..." in any order.
  */
+/**
+ * Words that open a message but are never a name. Without this, "Hello I am
+ * Waylon Kelly" extracts "Hello" as the first name.
+ */
+const NON_NAME_OPENERS = new Set([
+  "hello", "hi", "hey", "thanks", "thank", "good", "morning", "afternoon",
+  "evening", "yes", "no", "sure", "okay", "ok", "sorry", "please", "my",
+  "we", "our", "i", "the", "this", "that", "would", "could", "can", "do",
+]);
+
+/**
+ * Longest-first so "AVP" isn't matched as "VP", and multi-word titles win over
+ * their prefixes.
+ */
+const TITLE_PATTERN =
+  /\b(Vice President|Chief\s+\w+\s+Officer|Head of\s+[\w\s]+?|AVP|SVP|EVP|VP|Director|C[EOTFI]O|Manager|Lead|Partner|Principal|Owner|Founder)\b[^,.\n;]*/i;
+
 export function extractIdentity(text: string): {
   name: string | null;
   email: string | null;
@@ -139,26 +156,43 @@ export function extractIdentity(text: string): {
 } {
   const email = text.match(/[\w.+-]+@[\w-]+\.[\w.-]+/)?.[0] ?? null;
 
-  const titleMatch = text.match(
-    /\b(VP|Vice President|SVP|EVP|Director|Head|Chief[\w\s]*Officer|C[EOTFI]O|Manager|Lead)\b[^,.\n]*/i
-  );
-  // "VP of Operations at Northwind Logistics" — the company belongs in its own
-  // field, so cut the title at the " at " that introduces the employer.
+  const titleMatch = text.match(TITLE_PATTERN);
+  // "VP of Operations at Northwind Logistics" — the employer belongs in its own
+  // field, so cut the title at the " at " that introduces it.
   const title = titleMatch?.[0]?.split(/\s+at\s+/i)[0]?.trim() ?? null;
 
-  const companyMatch = text.match(/\bat\s+([A-Z][\w&.'-]*(?:\s+[A-Z][\w&.'-]*)*)/);
-  let company = companyMatch?.[1]?.trim() ?? null;
-
-  // Strip a trailing sentence fragment the greedy capital-run may have grabbed.
+  // Company: after "at"/"with"/"from", up to the next punctuation. Requires 2+
+  // characters per word so a stray "I" in "at perficient, I have…" isn't
+  // swallowed into the company name.
+  const companyMatch = text.match(
+    /\b(?:at|with|from)\s+([A-Za-z][\w&.'-]{1,}(?:\s+[A-Z][\w&.'-]{1,}){0,3})/
+  );
+  let company = companyMatch?.[1]?.split(/[,.;\n]/)[0]?.trim() ?? null;
   if (company && company.split(/\s+/).length > 4) {
     company = company.split(/\s+/).slice(0, 4).join(" ");
   }
 
-  // Name: leading "Firstname Lastname" before any comma or "at".
-  const nameMatch = text.match(/^\s*([A-Z][a-z'’-]+(?:\s+[A-Z][a-z'’-]+){0,2})\b/);
-  let name = nameMatch?.[1]?.trim() ?? null;
+  // Name, in order of reliability: an explicit introduction anywhere in the
+  // text, then a capitalised run at the very start.
+  let name: string | null = null;
 
-  // Guard against catching the title as the name ("VP of Operations ...").
+  const intro = text.match(
+    /\b(?:i am|i'm|my name is|name's|this is)\s+([A-Z][\w'’-]+(?:\s+[A-Z][\w'’-]+){0,2})/i
+  );
+  if (intro) name = intro[1].trim();
+
+  if (!name) {
+    const leading = text.match(
+      /^\s*([A-Z][a-z'’-]+(?:\s+[A-Z][a-z'’-]+){0,2})\b/
+    );
+    const candidate = leading?.[1]?.trim() ?? null;
+    const firstWord = candidate?.split(/\s+/)[0]?.toLowerCase();
+    if (candidate && firstWord && !NON_NAME_OPENERS.has(firstWord)) {
+      name = candidate;
+    }
+  }
+
+  // Guard against catching the title as the name ("VP of Operations …").
   if (name && title && title.toLowerCase().startsWith(name.toLowerCase())) {
     name = null;
   }

@@ -63,7 +63,7 @@ export default function ChatWidget() {
 
     // Scripted path: we asked explicitly, so this turn is the answer.
     if (phase === "capturing") {
-      await createLead(trimmed, withVisitor);
+      await createLead(withVisitor);
       return;
     }
 
@@ -90,10 +90,9 @@ export default function ChatWidget() {
       setMessages((m) => [...m, { role: "agent", content: data.reply }]);
 
       if (identityTurn && !leadCreatedRef.current) {
-        // The agent already closed in its own words; just reveal the record and
-        // leave the conversation open.
+        // The agent already closed in its own words, so don't add ours or end
+        // the conversation — it may still be booking a call.
         await createLead(
-          trimmed,
           [...withVisitor, { role: "agent", content: data.reply }],
           { announce: data.source === "scripted", end: false }
         );
@@ -126,7 +125,6 @@ export default function ChatWidget() {
    * input would stop her accepting it.
    */
   async function createLead(
-    identityText: string,
     transcript: Message[],
     { announce = true, end = true }: { announce?: boolean; end?: boolean } = {}
   ) {
@@ -135,6 +133,15 @@ export default function ChatWidget() {
 
     if (end) setPhase("creating");
     try {
+      // Identity comes from EVERY visitor turn, not just the one containing the
+      // email. People introduce themselves early ("I'm Waylon, AVP at ...") and
+      // give the email several turns later; reading only the email turn threw
+      // the name, title, and company away.
+      const identityText = transcript
+        .filter((m) => m.role === "visitor")
+        .map((m) => m.content)
+        .join("\n");
+
       const res = await fetch("/api/lead", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
