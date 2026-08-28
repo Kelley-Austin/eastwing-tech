@@ -38,7 +38,7 @@ type Persisted = {
   leadCreated: boolean;
 };
 
-export default function ChatWidget() {
+export default function ChatWidget({ onClose }: { onClose?: () => void }) {
   const [messages, setMessages] = useState<Message[]>([
     { role: "agent", content: GREETING },
   ]);
@@ -246,9 +246,12 @@ export default function ChatWidget() {
             <span className="absolute inline-flex size-2 rounded-full bg-[var(--signal)] opacity-60" />
             <span className="relative inline-flex size-2 rounded-full bg-[var(--signal)]" />
           </span>
-          <p className="min-w-0 flex-1 truncate text-sm font-medium">
-            Eastwing assistant
-          </p>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-medium">Eastwing assistant</p>
+            <p className="truncate text-[11px] text-[var(--faint)]">
+              Typically replies in a few seconds
+            </p>
+          </div>
           {messages.length > 1 && (
             <button
               onClick={reset}
@@ -259,12 +262,32 @@ export default function ChatWidget() {
               New chat
             </button>
           )}
+          {onClose && (
+            <button
+              onClick={onClose}
+              aria-label="Close chat"
+              className="shrink-0 rounded-md p-1 text-[var(--faint)] transition-colors hover:bg-[var(--surface)] hover:text-[var(--foreground)]"
+            >
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.2"
+                strokeLinecap="round"
+                aria-hidden
+              >
+                <path d="M18 6 6 18M6 6l12 12" />
+              </svg>
+            </button>
+          )}
         </div>
 
         {/* Transcript */}
         <div
           ref={scrollRef}
-          className="h-[26rem] space-y-4 overflow-y-auto px-5 py-5"
+          className="thin-scroll h-[24rem] space-y-4 overflow-y-auto px-4 py-5 sm:h-[26rem] sm:px-5"
           aria-live="polite"
         >
           {messages.map((m, i) => {
