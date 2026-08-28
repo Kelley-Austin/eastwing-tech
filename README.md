@@ -75,6 +75,35 @@ Two gotchas that cost real time:
   `invalid_client` error indistinguishable from a wrong secret. Config reads are
   trimmed defensively.
 
+### Who creates the Lead
+
+**Salesforce does.** The sales agent has its own create-Lead and book-meeting
+actions, so the app does not write a competing record on the live path. Meetings
+land on the standard `Event` object, linked to the Lead via `WhoId`.
+
+Two supporting pieces exist because the agent is not deterministic:
+
+- `POST /api/lead/sync` — fills fields the agent left blank on the Lead it
+  created (observed: `Email` populated on only 2 of 4 records, including one the
+  agent updated afterwards). Only ever fills empty fields, so it cannot
+  overwrite what the agent got right. Matches by exact email, else surname
+  within a 30-minute window.
+- `POST /api/lead` — writes a Lead from this app, reached **only** on the
+  scripted fallback, where the Agent API is unreachable and Salesforce could not
+  have created one. The two paths are mutually exclusive, so no duplicate is
+  possible.
+
+### Scheduling UI
+
+`lib/slots.ts` lifts offered times out of the agent's prose so the chat can
+render them as buttons; tapping one sends back the exact text the agent offered.
+Booking confirmations are excluded so a confirmed slot can't be re-picked.
+
+The pattern must tolerate several phrasings — the live agent writes
+`"Friday, August 28, at 9:30 AM"` with a comma before `at`, while earlier
+replies used `"August 28 at 9:00 AM"`. Comma, year, and the word `at` are all
+optional.
+
 ### Swap points
 
 Both stubs are deliberately isolated, so replacing them is configuration, not
