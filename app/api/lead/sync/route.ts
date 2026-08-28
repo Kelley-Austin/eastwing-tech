@@ -1,17 +1,19 @@
 import { extractIdentity, type Message } from "@/lib/agent";
-import { connect, esc, patch, soql } from "@/lib/salesforce";
+import { connect, create, esc, patch, soql } from "@/lib/salesforce";
 
 /**
- * Backfills fields the Salesforce agent left blank on the Lead it created.
+ * Guarantees the Lead exists and is complete, whatever the agent did.
  *
- * The agent decides per-conversation whether to pass the email to its
- * create/update action, so the field lands roughly half the time — including on
- * records it demonstrably updated afterwards. That non-determinism is fine for
- * a chatbot and unacceptable for a demo whose whole claim is that the record is
- * complete. This closes the gap deterministically.
+ * The Salesforce agent is non-deterministic on both counts. It populated `Email`
+ * on only about half the Leads it made — including one it demonstrably updated
+ * afterwards — and on some conversations it books the meeting without creating a
+ * Lead at all (every observed miss coincided with one particular assigned rep).
+ * That's tolerable for a chatbot and fatal for a demo whose whole claim is that
+ * the record builds itself.
  *
- * Deliberately additive: it only ever fills fields that are currently empty, so
- * it can never overwrite something the agent got right.
+ * So: prefer the agent's record, fill only the fields it left empty, and create
+ * one only when none exists. It can never overwrite what the agent got right,
+ * and never produces a duplicate, because it always looks first.
  */
 
 type SyncRequest = { transcript?: Message[] };
@@ -94,9 +96,26 @@ export async function POST(request: Request) {
       return Response.json({ synced: true, leadId: lead.Id, fields });
     }
 
+    // No Lead exists. Only create one once the agent has clearly finished —
+    // otherwise we'd race it: creating at the turn the email arrives, then the
+    // agent creating its own two turns later, leaves two records. A booking
+    // confirmation is the reliable "it's done" signal.
+    if (!looksSettled(transcript)) {
+      return Response.json({
+        synced: false,
+        reason: "no Lead yet; waiting for the agent to finish before creating one",
+      });
+    }
+
+    const created = await createLead(ctx, identity);
+    if (created) {
+      console.log(`[lead-sync] created ${created} (agent did not)`);
+      return Response.json({ created: true, leadId: created });
+    }
+
     return Response.json({
       synced: false,
-      reason: "no matching Lead found — the agent may not have created one",
+      reason: "no Lead found and too little identity to create one",
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "unknown error";
@@ -104,6 +123,51 @@ export async function POST(request: Request) {
     // Never surface this to the visitor's conversation.
     return Response.json({ synced: false, reason: message });
   }
+}
+
+/**
+ * True once the agent has confirmed a booking — the point after which it is not
+ * going to create a Lead if it hasn't already.
+ */
+function looksSettled(transcript: Message[]): boolean {
+  const lastAgent = [...transcript].reverse().find((m) => m.role === "agent");
+  if (!lastAgent) return false;
+  return /\b(confirm(ed|ation)?|booked|is scheduled|has been scheduled|all set)\b/i.test(
+    lastAgent.content
+  );
+}
+
+/**
+ * Creates the Lead the agent skipped.
+ *
+ * Salesforce requires LastName and Company. Company falls back to the email
+ * domain, which is a fair inference and better than discarding a real enquiry
+ * over a missing field.
+ */
+async function createLead(
+  ctx: NonNullable<Awaited<ReturnType<typeof connect>>>,
+  identity: ReturnType<typeof extractIdentity>
+): Promise<string | null> {
+  const parts = identity.name?.trim().split(/\s+/) ?? [];
+  const lastName = parts.length > 1 ? parts.slice(1).join(" ") : parts[0];
+  if (!lastName) return null;
+
+  const domain = identity.email?.split("@")[1]?.split(".")[0];
+  const company =
+    identity.company ??
+    (domain ? domain.charAt(0).toUpperCase() + domain.slice(1) : null);
+  if (!company) return null;
+
+  const fields: Record<string, string> = {
+    LastName: lastName,
+    Company: company,
+    LeadSource: "Web",
+  };
+  if (parts.length > 1) fields.FirstName = parts[0];
+  if (identity.email) fields.Email = identity.email;
+  if (identity.title) fields.Title = identity.title;
+
+  return create(ctx, "Lead", fields);
 }
 
 /**

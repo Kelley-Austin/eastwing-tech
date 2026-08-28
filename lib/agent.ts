@@ -176,10 +176,13 @@ export function extractIdentity(text: string): {
   // text, then a capitalised run at the very start.
   let name: string | null = null;
 
+  // Subsequent words may be lowercase — people type "my name is Waylon kelly".
+  // Capturing only the capitalised part would lose the surname entirely, which
+  // then breaks both Lead matching and Lead creation.
   const intro = text.match(
-    /\b(?:i am|i'm|my name is|name's|this is)\s+([A-Z][\w'’-]+(?:\s+[A-Z][\w'’-]+){0,2})/i
+    /\b(?:i am|i'm|my name is|name's|this is)\s+([A-Za-z][\w'’-]+(?:\s+[A-Za-z][\w'’-]+){0,2})/i
   );
-  if (intro) name = intro[1].trim();
+  if (intro) name = titleCaseName(intro[1].trim());
 
   if (!name) {
     const leading = text.match(
@@ -198,4 +201,16 @@ export function extractIdentity(text: string): {
   }
 
   return { name, email, title, company };
+}
+
+/** "waylon kelly" -> "Waylon Kelly", leaving already-cased names alone. */
+function titleCaseName(value: string): string {
+  return value
+    .split(/\s+/)
+    .map((word) =>
+      word.length && word === word.toLowerCase()
+        ? word.charAt(0).toUpperCase() + word.slice(1)
+        : word
+    )
+    .join(" ");
 }

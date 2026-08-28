@@ -56,6 +56,30 @@ export async function patch(
   }
 }
 
+export async function create(
+  ctx: SalesforceContext,
+  sobject: string,
+  fields: Record<string, string>
+): Promise<string> {
+  const url = `${ctx.config.domain}/services/data/v${API_VERSION}/sobjects/${sobject}`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${ctx.token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(fields),
+    signal: AbortSignal.timeout(ctx.config.timeoutMs),
+  });
+  const text = await res.text();
+  if (!res.ok) {
+    throw new Error(`CREATE ${sobject} ${res.status}: ${text.slice(0, 300)}`);
+  }
+  const data = JSON.parse(text) as { id?: string };
+  if (!data.id) throw new Error(`CREATE ${sobject} returned no id`);
+  return data.id;
+}
+
 /** SOQL string literal escaping — quotes and backslashes only. */
 export function esc(value: string): string {
   return value.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
