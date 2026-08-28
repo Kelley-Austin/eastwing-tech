@@ -2,20 +2,13 @@
 
 import { useEffect, useRef, useState } from "react";
 import { GREETING, SUGGESTED_PROMPTS } from "@/lib/copy";
-import type { ChatResponse, LeadResponse, Message } from "@/lib/types";
+import { parseOffer, type Slot } from "@/lib/slots";
+import type { ChatResponse, Message } from "@/lib/types";
 
 type Phase = "chatting" | "capturing" | "creating" | "done";
 
 /** Typing delay, so answers land like a person is on the other end. */
 const THINKING_MS = 700;
-
-/**
- * The live Salesforce agent asks for identity in its own words, at a moment we
- * don't control. So rather than gating on our own capture prompt, treat an
- * email address appearing in the visitor's message as the signal to create the
- * Lead. Works identically for the scripted path.
- */
-const EMAIL_RE = /[\w.+-]+@[\w-]+\.[\w.-]+/;
 
 export default function ChatWidget() {
   const [messages, setMessages] = useState<Message[]>([
@@ -32,11 +25,6 @@ export default function ChatWidget() {
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  /**
-   * Guards against a second Lead if she mentions another email later. A ref,
-   * not state, because the check and the set happen inside one async turn where
-   * a state update wouldn't have landed yet.
-   */
   const leadCreatedRef = useRef(false);
 
   useEffect(() => {
@@ -61,15 +49,12 @@ export default function ChatWidget() {
     ];
     setMessages(withVisitor);
 
-    // Scripted path: we asked explicitly, so this turn is the answer.
+    // Scripted-fallback path only: we asked for her details explicitly, so this
+    // turn is the answer. See createLead for why this path still writes a Lead.
     if (phase === "capturing") {
       await createLead(withVisitor);
       return;
     }
-
-    // Live-agent path: she volunteered an email in reply to the agent's own
-    // request. Let the agent answer naturally, then write the Lead.
-    const identityTurn = EMAIL_RE.test(trimmed);
 
     setThinking(true);
     try {
@@ -89,16 +74,8 @@ export default function ChatWidget() {
 
       setMessages((m) => [...m, { role: "agent", content: data.reply }]);
 
-      if (identityTurn && !leadCreatedRef.current) {
-        // The agent already closed in its own words, so don't add ours or end
-        // the conversation — it may still be booking a call.
-        await createLead(
-          [...withVisitor, { role: "agent", content: data.reply }],
-          { announce: data.source === "scripted", end: false }
-        );
-        return;
-      }
-
+      // On the live path the Salesforce agent creates the Lead itself, so we do
+      // nothing here — a second record would just compete with the real one.
       if (data.readyToCapture && data.capturePrompt) {
         await pause(500);
         setMessages((m) => [
@@ -118,25 +95,18 @@ export default function ChatWidget() {
   }
 
   /**
-   * `announce` writes our own closing line, and `end` closes the conversation.
-   * Both are false on the live-agent path: the agent has already acknowledged
-   * her details in its own words and often offers to book a call, so adding our
-   * closing would both repeat it and contradict the offer — while disabling the
-   * input would stop her accepting it.
+   * Writes a Lead from this app — reached only on the scripted fallback path.
+   *
+   * Salesforce owns Lead creation whenever the Agent API is answering. This
+   * exists purely so an Agent API outage doesn't silently throw away a real
+   * enquiry: the two paths are mutually exclusive, so no duplicate is possible.
    */
-  async function createLead(
-    transcript: Message[],
-    { announce = true, end = true }: { announce?: boolean; end?: boolean } = {}
-  ) {
+  async function createLead(transcript: Message[]) {
     if (leadCreatedRef.current) return;
     leadCreatedRef.current = true;
 
-    if (end) setPhase("creating");
+    setPhase("creating");
     try {
-      // Identity comes from EVERY visitor turn, not just the one containing the
-      // email. People introduce themselves early ("I'm Waylon, AVP at ...") and
-      // give the email several turns later; reading only the email turn threw
-      // the name, title, and company away.
       const identityText = transcript
         .filter((m) => m.role === "visitor")
         .map((m) => m.content)
@@ -145,44 +115,26 @@ export default function ChatWidget() {
       const res = await fetch("/api/lead", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          identityText,
-          signals,
-          topics,
-          transcript,
-        }),
+        body: JSON.stringify({ identityText, signals, topics, transcript }),
       });
       if (!res.ok) throw new Error(`Lead creation returned ${res.status}`);
-      const data: LeadResponse = await res.json();
 
-      if (announce) {
-        await pause(THINKING_MS);
-        setMessages((m) => [
-          ...m,
-          {
-            role: "agent",
-            content: `Thanks${
-              data.lead.firstName ? `, ${data.lead.firstName}` : ""
-            } — that's everything I need. ${
-              data.lead.routing.owner.startsWith("Unassigned")
-                ? "I've put this in the routing queue and someone will pick it up shortly."
-                : `${data.lead.routing.owner} covers ${data.lead.routing.territory} and will reach out shortly.`
-            } You can close the tab; nothing else is needed from you.`,
-          },
-        ]);
-      }
-
-      // The record is created server-side and lives in Salesforce, not here.
-      // Nothing about it is rendered in the chat: the visitor's surface stays a
-      // conversation, and the record belongs on the second screen.
-      if (end) setPhase("done");
+      await pause(THINKING_MS);
+      setMessages((m) => [
+        ...m,
+        {
+          role: "agent",
+          content:
+            "Thanks — that's everything I need. Someone will be in touch shortly.",
+        },
+      ]);
+      setPhase("done");
     } catch (e) {
       setError(
-        e instanceof Error ? e.message : "Something went wrong creating the lead."
+        e instanceof Error ? e.message : "Something went wrong saving your details."
       );
-      // Allow a retry — the visitor's details were never recorded.
       leadCreatedRef.current = false;
-      if (end) setPhase("capturing");
+      setPhase("capturing");
     }
   }
 
@@ -190,14 +142,12 @@ export default function ChatWidget() {
     <div className="w-full">
       <div className="overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface)] shadow-2xl shadow-black/40">
         {/* Header */}
-        <div className="flex items-center gap-3 border-b border-[var(--border)] bg-[var(--surface-raised)] px-5 py-3.5">
+        <div className="flex items-center gap-3 border-b border-[var(--border)] bg-[var(--surface-raised)] px-5 py-4">
           <span className="relative flex size-2">
             <span className="absolute inline-flex size-2 rounded-full bg-[var(--signal)] opacity-60" />
             <span className="relative inline-flex size-2 rounded-full bg-[var(--signal)]" />
           </span>
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-medium">Eastwing assistant</p>
-          </div>
+          <p className="truncate text-sm font-medium">Eastwing assistant</p>
         </div>
 
         {/* Transcript */}
@@ -206,9 +156,30 @@ export default function ChatWidget() {
           className="h-[26rem] space-y-4 overflow-y-auto px-5 py-5"
           aria-live="polite"
         >
-          {messages.map((m, i) => (
-            <Bubble key={i} role={m.role} content={m.content} />
-          ))}
+          {messages.map((m, i) => {
+            if (m.role !== "agent") {
+              return <Bubble key={i} role="visitor" content={m.content} />;
+            }
+
+            // Lift any offered times out of the prose so they render as taps
+            // rather than a wall of text. Historical messages keep the cleaned
+            // text but lose the buttons — only the latest offer is actionable.
+            const offer = parseOffer(m.content);
+            const isLatest = i === messages.length - 1;
+
+            return (
+              <div key={i} className="space-y-2">
+                <Bubble role="agent" content={offer.text} />
+                {isLatest && !thinking && offer.slots.length > 0 && (
+                  <SlotPicker
+                    slots={offer.slots}
+                    disabled={busy || phase === "done"}
+                    onPick={(slot) => send(slot.label)}
+                  />
+                )}
+              </div>
+            );
+          })}
 
           {thinking && (
             <div className="flex gap-1.5 px-1" aria-label="Assistant is typing">
@@ -221,7 +192,6 @@ export default function ChatWidget() {
               ))}
             </div>
           )}
-
         </div>
 
         {/* Suggested prompts — only before the visitor has said anything */}
@@ -258,9 +228,9 @@ export default function ChatWidget() {
               disabled={phase === "done" || busy}
               placeholder={
                 phase === "capturing"
-                  ? "Priya Chen, VP of Operations at Northwind Logistics, priya@northwindlogistics.com"
+                  ? "Your name, work email, and role"
                   : phase === "done"
-                    ? "Conversation ended — the lead already exists."
+                    ? "Thanks — we have what we need."
                     : "Ask about integrations, pricing, timelines…"
               }
               className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-[var(--faint)] disabled:cursor-not-allowed"
@@ -280,6 +250,42 @@ export default function ChatWidget() {
   );
 }
 
+/**
+ * Renders offered times as buttons. Tapping one sends its exact label back as
+ * the visitor's message, so the agent receives precisely the text it offered
+ * and the conversation stays consistent with what it planned.
+ */
+function SlotPicker({
+  slots,
+  disabled,
+  onPick,
+}: {
+  slots: Slot[];
+  disabled: boolean;
+  onPick: (slot: Slot) => void;
+}) {
+  return (
+    <div className="animate-rise max-w-[85%] space-y-1.5 rounded-2xl border border-[var(--border-strong)] bg-[var(--surface-raised)] p-2.5">
+      <p className="px-1 pb-0.5 font-mono text-[10px] uppercase tracking-widest text-[var(--faint)]">
+        Choose a time
+      </p>
+      {slots.map((slot) => (
+        <button
+          key={slot.label}
+          onClick={() => onPick(slot)}
+          disabled={disabled}
+          className="flex w-full items-center justify-between gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-left text-sm transition-colors hover:border-[var(--accent)] hover:bg-[var(--background)] disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          <span className="min-w-0 truncate">{slot.label}</span>
+          <span aria-hidden className="shrink-0 text-[var(--accent)]">
+            →
+          </span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function Bubble({ role, content }: { role: Message["role"]; content: string }) {
   const isAgent = role === "agent";
   return (
@@ -287,7 +293,7 @@ function Bubble({ role, content }: { role: Message["role"]; content: string }) {
       className={`animate-rise flex ${isAgent ? "justify-start" : "justify-end"}`}
     >
       <div
-        className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
+        className={`max-w-[85%] whitespace-pre-wrap rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
           isAgent
             ? "bg-[var(--surface-raised)] text-[var(--foreground)]"
             : "bg-[var(--accent)] text-[var(--accent-fg)]"
