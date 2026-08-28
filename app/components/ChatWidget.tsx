@@ -12,6 +12,32 @@ const THINKING_MS = 700;
 
 const EMAIL_RE = /[\w.+-]+@[\w-]+\.[\w.-]+/;
 
+/**
+ * Conversation persistence.
+ *
+ * `sessionStorage`, not `localStorage`: a refresh keeps the conversation, but
+ * closing the tab starts clean. That boundary matters for a demo — a rehearsal
+ * transcript resurfacing on stage would be worse than losing it.
+ *
+ * The version prefix lets a future shape change invalidate old blobs instead of
+ * restoring into a mismatched state.
+ */
+const STORAGE_KEY = "eastwing-chat-v1";
+
+/** Belt-and-braces against a very stale tab left open overnight. */
+const STORAGE_TTL_MS = 6 * 60 * 60 * 1000;
+
+type Persisted = {
+  v: 1;
+  savedAt: number;
+  messages: Message[];
+  sessionId: string | null;
+  signals: string[];
+  topics: string[];
+  phase: Phase;
+  leadCreated: boolean;
+};
+
 export default function ChatWidget() {
   const [messages, setMessages] = useState<Message[]>([
     { role: "agent", content: GREETING },
@@ -28,6 +54,54 @@ export default function ChatWidget() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const leadCreatedRef = useRef(false);
+  /** Blocks the save effect until restore has run, so it can't clobber storage. */
+  const [hydrated, setHydrated] = useState(false);
+
+  // Restore after mount rather than in a lazy initialiser: the server renders
+  // the greeting, so reading storage during render would cause a hydration
+  // mismatch.
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        const saved = JSON.parse(raw) as Persisted;
+        const fresh = Date.now() - (saved.savedAt ?? 0) < STORAGE_TTL_MS;
+        if (saved.v === 1 && fresh && saved.messages?.length > 1) {
+          setMessages(saved.messages);
+          setSessionId(saved.sessionId ?? null);
+          setSignals(saved.signals ?? []);
+          setTopics(saved.topics ?? []);
+          setPhase(saved.phase ?? "chatting");
+          leadCreatedRef.current = Boolean(saved.leadCreated);
+        } else {
+          sessionStorage.removeItem(STORAGE_KEY);
+        }
+      }
+    } catch {
+      // Private browsing, storage disabled, or a corrupt blob — start fresh.
+    }
+    setHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    try {
+      const payload: Persisted = {
+        v: 1,
+        savedAt: Date.now(),
+        messages,
+        sessionId,
+        signals,
+        topics,
+        phase: phase === "creating" ? "capturing" : phase,
+        leadCreated: leadCreatedRef.current,
+      };
+      sessionStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+    } catch {
+      // Storage full or unavailable — persistence is a convenience, not a
+      // requirement, so failing here must not break the chat.
+    }
+  }, [hydrated, messages, sessionId, signals, topics, phase]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({
@@ -35,6 +109,23 @@ export default function ChatWidget() {
       behavior: "smooth",
     });
   }, [messages, thinking]);
+
+  function reset() {
+    try {
+      sessionStorage.removeItem(STORAGE_KEY);
+    } catch {
+      // Nothing to clean up if storage is unavailable.
+    }
+    leadCreatedRef.current = false;
+    setMessages([{ role: "agent", content: GREETING }]);
+    setSessionId(null);
+    setSignals([]);
+    setTopics([]);
+    setPhase("chatting");
+    setDraft("");
+    setError(null);
+    inputRef.current?.focus();
+  }
 
   const busy = thinking || phase === "creating";
 
@@ -155,7 +246,19 @@ export default function ChatWidget() {
             <span className="absolute inline-flex size-2 rounded-full bg-[var(--signal)] opacity-60" />
             <span className="relative inline-flex size-2 rounded-full bg-[var(--signal)]" />
           </span>
-          <p className="truncate text-sm font-medium">Eastwing assistant</p>
+          <p className="min-w-0 flex-1 truncate text-sm font-medium">
+            Eastwing assistant
+          </p>
+          {messages.length > 1 && (
+            <button
+              onClick={reset}
+              disabled={busy}
+              className="shrink-0 rounded-md px-2 py-1 text-xs text-[var(--faint)] transition-colors hover:bg-[var(--surface)] hover:text-[var(--foreground)] disabled:opacity-40"
+              title="Clear this conversation and start over"
+            >
+              New chat
+            </button>
+          )}
         </div>
 
         {/* Transcript */}

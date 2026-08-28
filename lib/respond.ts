@@ -96,12 +96,23 @@ async function callAgent(
   message: string,
   sessionId: string | null
 ): Promise<{ reply: string; sessionId: string }> {
-  const activeSession = sessionId ?? (await startSession(config));
-
   // sequenceId must increase within a session; derive it from the turn count
   // so it stays correct without the client having to track it.
   const sequenceId = history.filter((m) => m.role === "visitor").length + 1;
 
-  const reply = await sendMessage(config, activeSession, message, sequenceId);
-  return { reply, sessionId: activeSession };
+  if (sessionId) {
+    try {
+      const reply = await sendMessage(config, sessionId, message, sequenceId);
+      return { reply, sessionId };
+    } catch {
+      // The session is gone — most likely restored from a page refresh after
+      // Salesforce expired it. Starting a fresh one and retrying keeps the
+      // visitor on the real agent instead of silently dropping to scripted.
+    }
+  }
+
+  const fresh = await startSession(config);
+  // New session, so the sequence restarts.
+  const reply = await sendMessage(config, fresh, message, 1);
+  return { reply, sessionId: fresh };
 }
