@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState } from "react";
 import { GREETING, SUGGESTED_PROMPTS } from "@/lib/copy";
 import type { ChatResponse, LeadResponse, Message } from "@/lib/types";
-import LeadPanel from "./LeadPanel";
 
 type Phase = "chatting" | "capturing" | "creating" | "done";
 
@@ -27,7 +26,6 @@ export default function ChatWidget() {
   const [phase, setPhase] = useState<Phase>("chatting");
   const [signals, setSignals] = useState<string[]>([]);
   const [topics, setTopics] = useState<string[]>([]);
-  const [lead, setLead] = useState<LeadResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   /** Agent API session, carried across turns so the agent keeps context. */
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -46,7 +44,7 @@ export default function ChatWidget() {
       top: scrollRef.current.scrollHeight,
       behavior: "smooth",
     });
-  }, [messages, thinking, lead]);
+  }, [messages, thinking]);
 
   const busy = thinking || phase === "creating";
 
@@ -166,7 +164,10 @@ export default function ChatWidget() {
           },
         ]);
       }
-      setLead(data);
+
+      // The record is created server-side and lives in Salesforce, not here.
+      // Nothing about it is rendered in the chat: the visitor's surface stays a
+      // conversation, and the record belongs on the second screen.
       if (end) setPhase("done");
     } catch (e) {
       setError(
@@ -217,7 +218,6 @@ export default function ChatWidget() {
             </div>
           )}
 
-          {lead && <LeadPanel lead={lead.lead} delivery={lead.delivery} />}
         </div>
 
         {/* Suggested prompts — only before the visitor has said anything */}
