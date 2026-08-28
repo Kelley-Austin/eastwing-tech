@@ -10,6 +10,8 @@ type Phase = "chatting" | "capturing" | "creating" | "done";
 /** Typing delay, so answers land like a person is on the other end. */
 const THINKING_MS = 700;
 
+const EMAIL_RE = /[\w.+-]+@[\w-]+\.[\w.-]+/;
+
 export default function ChatWidget() {
   const [messages, setMessages] = useState<Message[]>([
     { role: "agent", content: GREETING },
@@ -74,8 +76,14 @@ export default function ChatWidget() {
 
       setMessages((m) => [...m, { role: "agent", content: data.reply }]);
 
-      // On the live path the Salesforce agent creates the Lead itself, so we do
-      // nothing here — a second record would just compete with the real one.
+      // On the live path the Salesforce agent creates the Lead itself, so we
+      // never write a second one. But it populates Email only about half the
+      // time, so once an email has been mentioned, backfill anything it left
+      // blank. Fire-and-forget: this must never delay or break the chat.
+      if (data.source === "agent-api" && EMAIL_RE.test(identityText(withVisitor))) {
+        void syncLead([...withVisitor, { role: "agent", content: data.reply }]);
+      }
+
       if (data.readyToCapture && data.capturePrompt) {
         await pause(500);
         setMessages((m) => [
@@ -303,6 +311,30 @@ function Bubble({ role, content }: { role: Message["role"]; content: string }) {
       </div>
     </div>
   );
+}
+
+function identityText(transcript: Message[]): string {
+  return transcript
+    .filter((m) => m.role === "visitor")
+    .map((m) => m.content)
+    .join("\n");
+}
+
+/**
+ * Asks the server to fill in whatever the Salesforce agent left blank on the
+ * Lead. Failures are swallowed on purpose — a backfill problem must never
+ * surface in the visitor's conversation.
+ */
+async function syncLead(transcript: Message[]): Promise<void> {
+  try {
+    await fetch("/api/lead/sync", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ transcript }),
+    });
+  } catch {
+    // Intentionally silent.
+  }
 }
 
 function pause(ms: number) {
