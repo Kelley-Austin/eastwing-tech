@@ -80,6 +80,48 @@ export async function create(
   return data.id;
 }
 
+/**
+ * Invokes an Apex `@InvocableMethod` through the Actions REST API.
+ *
+ * Preferred over writing the record directly: the Apex owns enrichment, intent
+ * scoring, and the Act 1 notification, so going through it means the site never
+ * has to reimplement that logic — or drift from it.
+ */
+export async function invokeApexAction<T>(
+  ctx: SalesforceContext,
+  actionName: string,
+  inputs: Record<string, unknown>
+): Promise<{ success: boolean; outputs?: T; errors?: string[] }> {
+  const url = `${ctx.config.domain}/services/data/v${API_VERSION}/actions/custom/apex/${actionName}`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${ctx.token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ inputs: [inputs] }),
+    signal: AbortSignal.timeout(ctx.config.timeoutMs),
+  });
+
+  const text = await res.text();
+  if (!res.ok) {
+    throw new Error(`ACTION ${actionName} ${res.status}: ${text.slice(0, 300)}`);
+  }
+
+  const rows = JSON.parse(text) as {
+    isSuccess?: boolean;
+    outputValues?: T;
+    errors?: { message?: string }[] | null;
+  }[];
+
+  const row = rows?.[0];
+  return {
+    success: Boolean(row?.isSuccess),
+    outputs: row?.outputValues,
+    errors: row?.errors?.map((e) => e.message ?? "unknown").filter(Boolean),
+  };
+}
+
 /** SOQL string literal escaping — quotes and backslashes only. */
 export function esc(value: string): string {
   return value.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
