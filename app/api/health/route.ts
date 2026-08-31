@@ -5,6 +5,7 @@ import {
   startSession,
   endSession,
 } from "@/lib/agentApi";
+import { missingSlackKeys, readSlackConfig } from "@/lib/slack";
 
 /**
  * Pre-flight check: is the real Agent API path live right now?
@@ -19,6 +20,11 @@ export async function GET() {
   const missing = missingConfigKeys();
   const config = readConfig();
 
+  // Act 1 readiness, reported alongside Act 0 so one call covers the demo.
+  const slack = readSlackConfig()
+    ? { configured: true }
+    : { configured: false, missingEnvVars: missingSlackKeys() };
+
   if (!config) {
     const disabled = process.env.SF_AGENT_ENABLED?.trim() === "false";
     return Response.json(
@@ -29,6 +35,7 @@ export async function GET() {
           : "Agent API not configured",
         missingEnvVars: disabled ? [] : missing,
         checks: { config: false, token: null, session: null },
+        slack,
       },
       { status: 200 }
     );
@@ -82,5 +89,6 @@ export async function GET() {
     timeoutMs: config.timeoutMs,
     bypassUser: config.bypassUser,
     checks,
+    slack,
   });
 }
