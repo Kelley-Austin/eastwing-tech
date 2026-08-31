@@ -174,10 +174,13 @@ export function buildLeadCard(card: LeadCard) {
       type: "context",
       elements: [
         {
+          // No rep name here on purpose. In the demo org the Lead owner is the
+          // presenter's own user, and seeing their name on stage reads as a
+          // misconfiguration rather than as routing.
           type: "mrkdwn",
-          text: card.ownerName
-            ? `Routed to ${card.ownerName} · nobody opened Salesforce`
-            : "Awaiting assignment · nobody opened Salesforce",
+          text: card.territory
+            ? `Routed by territory: ${card.territory} · nobody opened Salesforce`
+            : "Nobody opened Salesforce",
         },
       ],
     }
@@ -270,7 +273,9 @@ export function draftOutreach(card: Omit<LeadCard, "draft">): string {
     lines.push("", "Would a 30-minute call this week suit?");
   }
 
-  lines.push("", card.ownerName ? card.ownerName : "The Eastwing team");
+  // Generic sign-off rather than the Lead owner's name, for the same reason as
+  // the card footer.
+  lines.push("", "The Eastwing team");
 
   return lines.join("\n");
 }
