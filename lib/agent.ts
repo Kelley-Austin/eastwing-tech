@@ -141,6 +141,12 @@ const NON_NAME_OPENERS = new Set([
   "we", "our", "i", "the", "this", "that", "would", "could", "can", "do",
 ]);
 
+/** Determiners and pronouns that can follow "at" but are never a company. */
+const NON_COMPANY_OPENERS = new Set([
+  "our", "the", "a", "an", "my", "your", "their", "this", "that", "these",
+  "those", "some", "any", "all", "least", "most", "it", "us", "them",
+]);
+
 /**
  * Longest-first so "AVP" isn't matched as "VP", and multi-word titles win over
  * their prefixes.
@@ -161,13 +167,22 @@ export function extractIdentity(text: string): {
   // field, so cut the title at the " at " that introduces it.
   const title = titleMatch?.[0]?.split(/\s+at\s+/i)[0]?.trim() ?? null;
 
-  // Company: after "at"/"with"/"from", up to the next punctuation. Requires 2+
-  // characters per word so a stray "I" in "at perficient, I have…" isn't
-  // swallowed into the company name.
+  // Company: only after "at". "with" and "from" were accepted originally, but
+  // they precede a product far more often than an employer — "do you integrate
+  // with our TMS" yielded the company "our TMS".
+  //
+  // Requires 2+ characters per word so a stray "I" in "at perficient, I have…"
+  // isn't swallowed, and [ \t] rather than \s so a name can never run across a
+  // line break into the next sentence.
   const companyMatch = text.match(
-    /\b(?:at|with|from)\s+([A-Za-z][\w&.'-]{1,}(?:\s+[A-Z][\w&.'-]{1,}){0,3})/
+    /\bat[ \t]+([A-Za-z][\w&.'-]{1,}(?:[ \t]+[A-Z][\w&.'-]{1,}){0,3})/
   );
   let company = companyMatch?.[1]?.split(/[,.;\n]/)[0]?.trim() ?? null;
+
+  // Determiners and pronouns are never a company name.
+  if (company && NON_COMPANY_OPENERS.has(company.split(/\s+/)[0].toLowerCase())) {
+    company = null;
+  }
   if (company && company.split(/\s+/).length > 4) {
     company = company.split(/\s+/).slice(0, 4).join(" ");
   }
@@ -179,8 +194,12 @@ export function extractIdentity(text: string): {
   // Subsequent words may be lowercase — people type "my name is Waylon kelly".
   // Capturing only the capitalised part would lose the surname entirely, which
   // then breaks both Lead matching and Lead creation.
+  //
+  // [ \t] rather than \s is essential: identity text is several messages joined
+  // by newlines, and \s matched across them — "I am Gaurav" followed by "We're
+  // drowning in manual dispatch" produced the name "Gaurav We're".
   const intro = text.match(
-    /\b(?:i am|i'm|my name is|name's|this is)\s+([A-Za-z][\w'’-]+(?:\s+[A-Za-z][\w'’-]+){0,2})/i
+    /\b(?:i am|i'm|my name is|name's|this is)[ \t]+([A-Za-z][\w'’-]+(?:[ \t]+[A-Za-z][\w'’-]+){0,2})/i
   );
   if (intro) name = titleCaseName(intro[1].trim());
 
