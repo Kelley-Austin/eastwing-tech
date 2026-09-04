@@ -139,7 +139,37 @@ const NON_NAME_OPENERS = new Set([
   "hello", "hi", "hey", "thanks", "thank", "good", "morning", "afternoon",
   "evening", "yes", "no", "sure", "okay", "ok", "sorry", "please", "my",
   "we", "our", "i", "the", "this", "that", "would", "could", "can", "do",
+  // Question and sentence openers. A visitor's message far more often starts
+  // "What does it cost?" than with their name, and the capitalised-run fallback
+  // happily read "What" as a first name — which then landed on the Lead.
+  // Deliberately excludes words that are also real given names (Will, May,
+  // Grant, Mark): a missed name is recoverable, a plausible wrong one is not.
+  "what", "how", "when", "where", "why", "which", "who", "whose", "any",
+  "does", "did", "is", "are", "was", "were", "if", "and", "but", "so",
+  "just", "there", "about", "also", "still", "let", "send", "give", "tell",
+  "need", "looking", "not", "you", "your", "it", "us", "am",
 ]);
+
+/**
+ * Words that can trail a captured name but are never part of one.
+ *
+ * "I'm Waylon Kelly and we need pricing" matched three words and produced the
+ * surname "And", because the intro pattern allows up to three words and has no
+ * idea where the name stops.
+ */
+const NAME_TRAILERS = new Set([
+  "and", "here", "from", "at", "with", "we", "i", "the", "our", "my",
+  "but", "so", "also", "just", "who", "that", "of", "in", "for",
+]);
+
+/** Drops trailing filler, returning null if nothing recognisable is left. */
+function trimNameTrailers(value: string): string | null {
+  const words = value.trim().split(/\s+/);
+  while (words.length > 0 && NAME_TRAILERS.has(words[words.length - 1].toLowerCase())) {
+    words.pop();
+  }
+  return words.length > 0 ? words.join(" ") : null;
+}
 
 /** Determiners and pronouns that can follow "at" but are never a company. */
 const NON_COMPANY_OPENERS = new Set([
@@ -201,7 +231,10 @@ export function extractIdentity(text: string): {
   const intro = text.match(
     /\b(?:i am|i'm|my name is|name's|this is)[ \t]+([A-Za-z][\w'’-]+(?:[ \t]+[A-Za-z][\w'’-]+){0,2})/i
   );
-  if (intro) name = titleCaseName(intro[1].trim());
+  if (intro) {
+    const trimmed = trimNameTrailers(intro[1]);
+    name = trimmed ? titleCaseName(trimmed) : null;
+  }
 
   if (!name) {
     const leading = text.match(
@@ -211,6 +244,30 @@ export function extractIdentity(text: string): {
     const firstWord = candidate?.split(/\s+/)[0]?.toLowerCase();
     if (candidate && firstWord && !NON_NAME_OPENERS.has(firstWord)) {
       name = candidate;
+    }
+  }
+
+  // The visitor rarely introduces themselves in their opening message — they ask
+  // their question first, then answer "Priya Chen, VP of Operations at Northwind,
+  // priya@northwind.com" when the agent asks. Both patterns above miss that: the
+  // intro needs "I'm"/"my name is", and the leading-run match is anchored to the
+  // start of the JOINED text, which is always that first question. So a plain
+  // "First Last" reply yielded no name at all, and the Lead was filed without a
+  // surname. Scanning per message is what catches it.
+  if (!name) {
+    for (const line of text.split("\n")) {
+      // Two or three words here, not one: a lone capitalised word at the start of
+      // a mid-conversation reply is far more often a product or a place.
+      const candidate = line
+        .match(/^\s*([A-Z][a-z'’-]+(?:\s+[A-Z][a-z'’-]+){1,2})\b/)?.[1]
+        ?.trim();
+      if (!candidate) continue;
+      if (NON_NAME_OPENERS.has(candidate.split(/\s+/)[0].toLowerCase())) continue;
+      // "Vice President of Ops" and "Northwind Logistics" both look like names.
+      if (TITLE_PATTERN.test(candidate)) continue;
+      if (company && candidate.toLowerCase() === company.toLowerCase()) continue;
+      name = candidate;
+      break;
     }
   }
 
